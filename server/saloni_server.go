@@ -13,7 +13,7 @@ import (
 )
 
 func handleStorage(msgHandler *messages.MessageHandler, request *messages.StorageRequest) error {
-	log.Printf("Storing %q (%d bytes) from %s", request.FileName, request.Size, msgHandler.RemoteAddr())
+	log.Printf("Storing %q (%d bytes)", request.FileName, request.Size)
 
 	file, err := os.OpenFile(request.FileName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0666)
 	if err != nil {
@@ -26,7 +26,7 @@ func handleStorage(msgHandler *messages.MessageHandler, request *messages.Storag
 
 	h := md5.New()
 	if _, err := io.CopyN(io.MultiWriter(file, h), msgHandler, int64(request.Size)); err != nil {
-		os.Remove(request.FileName) // don't leave a partial file
+		os.Remove(request.FileName)
 		return fmt.Errorf("receiving data: %w", err)
 	}
 
@@ -49,7 +49,7 @@ func handleStorage(msgHandler *messages.MessageHandler, request *messages.Storag
 }
 
 func handleRetrieval(msgHandler *messages.MessageHandler, request *messages.RetrievalRequest) error {
-	log.Printf("Retrieving %q for %s", request.FileName, msgHandler.RemoteAddr())
+	log.Printf("Retrieving %q", request.FileName)
 
 	info, err := os.Stat(request.FileName)
 	if err != nil {
@@ -78,17 +78,15 @@ func handleRetrieval(msgHandler *messages.MessageHandler, request *messages.Retr
 
 func handleClient(msgHandler *messages.MessageHandler) {
 	defer msgHandler.Close()
-	addr := msgHandler.RemoteAddr()
-	log.Println("Handling client", addr)
+	log.Println("Handling new client connection")
 
 	for {
 		wrapper, err := msgHandler.Receive()
 		if err != nil {
-			// EOF means the client closed the connection cleanly
 			if errors.Is(err, io.EOF) {
-				log.Println("Client disconnected:", addr)
+				log.Println("Client disconnected")
 			} else {
-				log.Println("Receive error from", addr, ":", err)
+				log.Println("Receive error:", err)
 			}
 			return
 		}
@@ -96,17 +94,17 @@ func handleClient(msgHandler *messages.MessageHandler) {
 		switch msg := wrapper.Msg.(type) {
 		case *messages.Wrapper_StorageReq:
 			if err := handleStorage(msgHandler, msg.StorageReq); err != nil {
-				log.Printf("Storage error for %s: %v", addr, err)
+				log.Printf("Storage error: %v", err)
 			}
 		case *messages.Wrapper_RetrievalReq:
 			if err := handleRetrieval(msgHandler, msg.RetrievalReq); err != nil {
-				log.Printf("Retrieval error for %s: %v", addr, err)
+				log.Printf("Retrieval error: %v", err)
 			}
 		case nil:
-			log.Println("Empty message from", addr, "— closing connection")
+			log.Println("Empty message — closing connection")
 			return
 		default:
-			log.Printf("Unexpected message type %T from %s", msg, addr)
+			log.Printf("Unexpected message type: %T", msg)
 		}
 	}
 }
@@ -138,7 +136,6 @@ func main() {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			// Distinguish between a closed listener and a transient error
 			if errors.Is(err, net.ErrClosed) {
 				log.Println("Listener closed, shutting down")
 				return
